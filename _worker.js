@@ -1,6 +1,8 @@
 async function logError(request, message) {
   console.error(
-    `${message}, url: ${request.url}`
+    `${message}, clientIp: ${request.headers.get(
+      "x-forwarded-for"
+    )}, user-agent: ${request.headers.get("user-agent")}, url: ${request.url}`
   );
 }
 
@@ -11,7 +13,7 @@ async function createNewRequest(request, url, proxyHostname, originHostname) {
       newRequestHeaders.set(
         key,
         value.replace(
-          new RegExp(`(?<!\.)\b${originHostname}\b`, "g"),
+          new RegExp(`(?<!\\.)\\b${originHostname}\\b`, "g"),
           proxyHostname
         )
       );
@@ -36,7 +38,7 @@ async function setResponseHeaders(
       newResponseHeaders.set(
         key,
         value.replace(
-          new RegExp(`(?<!\.)\b${proxyHostname}\b`, "g"),
+          new RegExp(`(?<!\\.)\\b${proxyHostname}\\b`, "g"),
           originHostname
         )
       );
@@ -58,12 +60,12 @@ async function replaceResponseText(
   if (pathnameRegex) {
     pathnameRegex = pathnameRegex.replace(/^\^/, "");
     return text.replace(
-      new RegExp(`((?<!\.)\b${proxyHostname}\b)(${pathnameRegex})`, "g"),
+      new RegExp(`((?<!\\.)\\b${proxyHostname}\\b)(${pathnameRegex})`, "g"),
       `${originHostname}$2`
     );
   } else {
     return text.replace(
-      new RegExp(`(?<!\.)\b${proxyHostname}\b`, "g"),
+      new RegExp(`(?<!\\.)\\b${proxyHostname}\\b`, "g"),
       originHostname
     );
   }
@@ -73,7 +75,7 @@ async function nginx() {
   return `<!DOCTYPE html>
 <html>
 <head>
-<title>Everything is Shit!</title>
+<title>Welcome to nginx!</title>
 <style>
 html { color-scheme: light dark; }
 body { width: 35em; margin: 0 auto;
@@ -81,8 +83,16 @@ font-family: Tahoma, Verdana, Arial, sans-serif; }
 </style>
 </head>
 <body>
-<h1>Fuck!</h1>
-<p><em>You are a Shit.</em></p>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
 </body>
 </html>`;
 }
@@ -94,12 +104,45 @@ export default {
         PROXY_HOSTNAME,
         PROXY_PROTOCOL = "https",
         PATHNAME_REGEX,
+        UA_WHITELIST_REGEX,
+        UA_BLACKLIST_REGEX,
         URL302,
+        IP_WHITELIST_REGEX,
+        IP_BLACKLIST_REGEX,
+        REGION_WHITELIST_REGEX,
+        REGION_BLACKLIST_REGEX,
         DEBUG = false,
       } = env;
       const url = new URL(request.url);
       const originHostname = url.hostname;
-      if (!PROXY_HOSTNAME || (PATHNAME_REGEX && !new RegExp(PATHNAME_REGEX).test(url.pathname))) {
+      if (
+        !PROXY_HOSTNAME ||
+        (PATHNAME_REGEX && !new RegExp(PATHNAME_REGEX).test(url.pathname)) ||
+        (UA_WHITELIST_REGEX &&
+          !new RegExp(UA_WHITELIST_REGEX).test(
+            request.headers.get("user-agent").toLowerCase()
+          )) ||
+        (UA_BLACKLIST_REGEX &&
+          new RegExp(UA_BLACKLIST_REGEX).test(
+            request.headers.get("user-agent").toLowerCase()
+          )) ||
+        (IP_WHITELIST_REGEX &&
+          !new RegExp(IP_WHITELIST_REGEX).test(
+            request.headers.get("x-forwarded-for")
+          )) ||
+        (IP_BLACKLIST_REGEX &&
+          new RegExp(IP_BLACKLIST_REGEX).test(
+            request.headers.get("x-forwarded-for")
+          )) ||
+        (REGION_WHITELIST_REGEX &&
+          !new RegExp(REGION_WHITELIST_REGEX).test(
+            request.headers.get("cf-ipcountry")
+          )) ||
+        (REGION_BLACKLIST_REGEX &&
+          new RegExp(REGION_BLACKLIST_REGEX).test(
+            request.headers.get("cf-ipcountry")
+          ))
+      ) {
         logError(request, "Invalid");
         return URL302
           ? Response.redirect(URL302, 302)
